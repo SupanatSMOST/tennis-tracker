@@ -204,9 +204,11 @@ func TestGameplayE2E_FullFlow(t *testing.T) {
 		t.Errorf("GET /matches: created match %s not found in list", matchID)
 	}
 
-	// ── single add (one shot, ts_ms=10) ───────────────────────────────────────
+	// ── single add (one shot, ts_ms=40 — intentionally HIGH so the batch below
+	//    can provide lower ts_ms values, proving the handler honours ORDER BY
+	//    ts_ms ASC rather than returning insertion order) ──────────────────────
 	addOneResp := e2ePostAuth(t, srv, "/matches/"+matchID+"/records",
-		`{"shots":[{"zone":"baseline","ts_ms":10}]}`, bearer)
+		`{"shots":[{"zone":"baseline","ts_ms":40}]}`, bearer)
 	if addOneResp.StatusCode != http.StatusCreated {
 		b := readBody(t, addOneResp)
 		t.Fatalf("POST /matches/%s/records (single): want 201, got %d: %s", matchID, addOneResp.StatusCode, b)
@@ -223,9 +225,11 @@ func TestGameplayE2E_FullFlow(t *testing.T) {
 		t.Errorf("add single: len(record_ids) = %d, want 1", len(addOneBody.RecordIDs))
 	}
 
-	// ── N-element batch add (3 shots, ts_ms 20/30/40) ─────────────────────────
+	// ── N-element batch add (3 shots with ts_ms lower than the single shot
+	//    inserted above: 10, 20, 30 — insertion order would place the single
+	//    shot first, but ORDER BY ts_ms ASC must surface these three first) ────
 	addBatchResp := e2ePostAuth(t, srv, "/matches/"+matchID+"/records",
-		`{"shots":[{"zone":"baseline","ts_ms":20},{"zone":"net","ts_ms":30},{"zone":"net","ts_ms":40}]}`, bearer)
+		`{"shots":[{"zone":"baseline","ts_ms":10},{"zone":"net","ts_ms":20},{"zone":"net","ts_ms":30}]}`, bearer)
 	if addBatchResp.StatusCode != http.StatusCreated {
 		b := readBody(t, addBatchResp)
 		t.Fatalf("POST /matches/%s/records (batch): want 201, got %d: %s", matchID, addBatchResp.StatusCode, b)
@@ -238,7 +242,11 @@ func TestGameplayE2E_FullFlow(t *testing.T) {
 		t.Errorf("add batch: created = %d, want 3", addBatchBody.Created)
 	}
 
-	// ── GET /records — expect 4 total (1+3), deterministic order by ts_ms ─────
+	// ── GET /records — expect 4 total (1+3).
+	// Expected ORDER BY ts_ms ASC: 10, 20, 30, 40.
+	// Insertion order was: 40 (single), then 10/20/30 (batch) — so if the
+	// handler returned insertion order the sequence would be 40,10,20,30 and
+	// the assertion below would fail, proving the sort is actually applied.
 	recResp := e2eGet(t, srv, "/matches/"+matchID+"/records", bearer)
 	if recResp.StatusCode != http.StatusOK {
 		b := readBody(t, recResp)
@@ -252,7 +260,7 @@ func TestGameplayE2E_FullFlow(t *testing.T) {
 	if len(recList) != 4 {
 		t.Errorf("GET /records: want 4 records, got %d", len(recList))
 	}
-	// Verify deterministic order: ts_ms 10, 20, 30, 40.
+	// Verify deterministic ORDER BY ts_ms ASC: 10, 20, 30, 40.
 	if len(recList) == 4 {
 		expectedTsMs := []int32{10, 20, 30, 40}
 		for i, r := range recList {
