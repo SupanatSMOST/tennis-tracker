@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -24,13 +26,14 @@ type authedUserKey struct{}
 
 // RequireAuth returns middleware that validates a Bearer JWT, resolves the
 // subject UUID to a live user_login row, and injects an AuthedUser into the
-// request context. Any failure yields 401 {"error":"unauthorized"}.
+// request context.
 //
 // Failure sequence (each terminates and never calls next):
 //  1. Missing or non-"Bearer <token>" Authorization header → 401
 //  2. tokens.Parse failure (bad sig / wrong alg / malformed) → 401
-//  3. store.GetUserByID not found (or any DB error) → 401
-//  4. Success: AuthedUser injected; next handler called.
+//  3. store.GetUserByID returns ErrUserNotFound (deleted/unknown user) → 401
+//  4. store.GetUserByID returns any other error (DB outage etc.) → 500
+//  5. Success: AuthedUser injected; next handler called.
 func RequireAuth(tokens *service.TokenService, s *store.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,9 +57,15 @@ func RequireAuth(tokens *service.TokenService, s *store.Store) func(http.Handler
 
 			u, err := s.GetUserByID(r.Context(), userID)
 			if err != nil {
-				// Both ErrUserNotFound (deleted user, AC20) and unexpected DB errors
-				// return 401 per the task contract: all failures → "unauthorized".
-				writeError(w, http.StatusUnauthorized, "unauthorized")
+				if errors.Is(err, store.ErrUserNotFound) {
+					// AC20: valid token but subject no longer exists → treat as
+					// authentication failure (user deleted / deactivated).
+					writeError(w, http.StatusUnauthorized, "unauthorized")
+					return
+				}
+				// Unexpected DB error — do not conflate with auth failure.
+				slog.ErrorContext(r.Context(), "RequireAuth: GetUserByID unexpected error", "error", err)
+				writeError(w, http.StatusInternalServerError, "internal server error")
 				return
 			}
 
