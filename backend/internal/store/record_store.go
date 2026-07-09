@@ -55,6 +55,41 @@ func (s *Store) InsertRecords(ctx context.Context, matchID, userID uuid.UUID, re
 	return tx.Commit(ctx)
 }
 
+// GetSummary returns stored match_summary rows for the given match ordered by
+// zone ascending. Ownership is verified via GetMatchOwned; ErrMatchNotFound is
+// returned unchanged for an unknown or not-owned match (AC-Z1). Returns an
+// empty (non-nil) slice when no summary rows exist (FR-S4, OQ-1: [] before end).
+func (s *Store) GetSummary(ctx context.Context, matchID, userID uuid.UUID) ([]model.SummaryRow, error) {
+	if _, err := s.GetMatchOwned(ctx, matchID, userID); err != nil {
+		return nil, err
+	}
+
+	rows := []model.SummaryRow{}
+
+	result, err := s.pool.Query(ctx,
+		`SELECT zone, shot_count, computed_at FROM match_summary
+		 WHERE match_id = $1 ORDER BY zone ASC`,
+		matchID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer result.Close()
+
+	for result.Next() {
+		var sr model.SummaryRow
+		if err := result.Scan(&sr.Zone, &sr.ShotCount, &sr.ComputedAt); err != nil {
+			return nil, err
+		}
+		rows = append(rows, sr)
+	}
+	if err := result.Err(); err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
+
 // ListRecords returns all records for the given match ordered deterministically
 // by ts_ms ASC NULLS LAST, then created_at ASC (FR-R3). Ownership is verified
 // via GetMatchOwned; ErrMatchNotFound is returned unchanged for an unknown or
