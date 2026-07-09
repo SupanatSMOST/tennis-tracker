@@ -1,0 +1,2 @@
+# compiled server binary produced by: go build -o server ./cmd/server
+/server
