@@ -82,3 +82,39 @@ func (s *Store) GetMatchOwned(ctx context.Context, matchID, userID uuid.UUID) (m
 	}
 	return m, nil
 }
+
+// RebuildSummary is the sole writer of match_summary, derived purely from record.
+// It runs unconditionally in two steps inside the caller-supplied transaction tx:
+//  1. Upsert current zones (AC18): aggregate record → INSERT ... ON CONFLICT DO UPDATE.
+//  2. Delete stale zones (AC19b): remove any summary row whose zone no longer has a
+//     matching record row. NOT EXISTS is required instead of NOT IN because
+//     record.zone is nullable — NOT IN against a NULL-yielding subquery silently
+//     deletes nothing (SQL three-valued-logic).
+//
+// The caller (EndMatch or a direct test) owns the transaction lifecycle;
+// RebuildSummary never begins or commits the tx.
+func (s *Store) RebuildSummary(ctx context.Context, tx pgx.Tx, matchID uuid.UUID) error {
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO match_summary (match_id, zone, shot_count, computed_at)
+		 SELECT match_id, zone, COUNT(*), now()
+		 FROM record WHERE match_id = $1 GROUP BY match_id, zone
+		 ON CONFLICT (match_id, zone)
+		 DO UPDATE SET shot_count = EXCLUDED.shot_count, computed_at = EXCLUDED.computed_at`,
+		matchID,
+	); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM match_summary ms
+		 WHERE ms.match_id = $1
+		   AND NOT EXISTS (
+		     SELECT 1 FROM record r WHERE r.match_id = $1 AND r.zone = ms.zone
+		   )`,
+		matchID,
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
