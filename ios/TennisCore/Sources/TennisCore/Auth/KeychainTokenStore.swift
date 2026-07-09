@@ -6,7 +6,9 @@ import Security
 ///
 /// Accessibility: `kSecAttrAccessibleAfterFirstUnlock` (OQ-3).
 /// This allows background access after the device has been unlocked once after boot,
-/// and participates in iCloud Keychain sync.
+/// and survives reboot. The item is stored DEVICE-LOCALLY — iCloud Keychain sync is
+/// NOT enabled because `kSecAttrSynchronizable` is not set. Whether to enable sync
+/// is a pending decision (Gate 2); do NOT add `kSecAttrSynchronizable` unilaterally.
 /// Do NOT change to any `...ThisDeviceOnly` variant.
 public final class KeychainTokenStore: TokenStore {
     private let service: String
