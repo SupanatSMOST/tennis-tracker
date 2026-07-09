@@ -83,6 +83,60 @@ func (s *Store) GetMatchOwned(ctx context.Context, matchID, userID uuid.UUID) (m
 	return m, nil
 }
 
+// EndMatch sets ended_at = now() on the owned match and rebuilds match_summary in
+// a single transaction. Steps (FR-M4, A-5):
+//  1. SELECT ... FOR UPDATE — no row → ErrMatchNotFound; ended_at set → ErrMatchAlreadyEnded (OQ-2).
+//  2. UPDATE match SET ended_at = now() RETURNING all columns.
+//  3. RebuildSummary(ctx, tx, matchID) — upsert + stale-zone delete in the same tx.
+//  4. Commit. Deferred rollback is a no-op after commit (mirrors CreateUserWithProfile).
+func (s *Store) EndMatch(ctx context.Context, matchID, userID uuid.UUID) (model.Match, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return model.Match{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after Commit; intentional
+
+	// Step 1: ownership + ended guard — lock the row for the duration of the tx.
+	var m model.Match
+	err = tx.QueryRow(ctx,
+		`SELECT match_id, user_id, location, court_surface, played_at, ended_at, created_at
+		 FROM match WHERE match_id = $1 AND user_id = $2 FOR UPDATE`,
+		matchID, userID,
+	).Scan(&m.MatchID, &m.UserID, &m.Location, &m.CourtSurface, &m.PlayedAt, &m.EndedAt, &m.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.Match{}, ErrMatchNotFound
+		}
+		return model.Match{}, err
+	}
+	if m.EndedAt != nil {
+		return model.Match{}, ErrMatchAlreadyEnded
+	}
+
+	// Step 2: set ended_at; the row is already locked — match_id alone suffices.
+	err = tx.QueryRow(ctx,
+		`UPDATE match SET ended_at = now()
+		 WHERE match_id = $1
+		 RETURNING match_id, user_id, location, court_surface, played_at, ended_at, created_at`,
+		matchID,
+	).Scan(&m.MatchID, &m.UserID, &m.Location, &m.CourtSurface, &m.PlayedAt, &m.EndedAt, &m.CreatedAt)
+	if err != nil {
+		return model.Match{}, err
+	}
+
+	// Step 3: rebuild summary in the same tx (all-or-nothing with the UPDATE above).
+	if err := s.RebuildSummary(ctx, tx, matchID); err != nil {
+		return model.Match{}, err
+	}
+
+	// Step 4: commit — deferred rollback becomes a no-op.
+	if err := tx.Commit(ctx); err != nil {
+		return model.Match{}, err
+	}
+
+	return m, nil
+}
+
 // RebuildSummary is the sole writer of match_summary, derived purely from record.
 // It runs unconditionally in two steps inside the caller-supplied transaction tx:
 //  1. Upsert current zones (AC18): aggregate record → INSERT ... ON CONFLICT DO UPDATE.
