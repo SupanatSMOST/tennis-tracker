@@ -1,0 +1,68 @@
+{
+  "$comment": "Tennis Shot Tracker — project governance policy",
+
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Write(backend/**)",
+      "Write(ios/**)",
+      "Write(cv/**)",
+      "Write(tests/**)",
+      "Write(docs/**)",
+      "Edit(backend/**)",
+      "Edit(ios/**)",
+      "Edit(cv/**)",
+      "Edit(tests/**)",
+      "Edit(docs/**)",
+      "Bash(go:*)",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(python:*)",
+      "Bash(pytest:*)",
+      "Bash(mypy:*)",
+      "Bash(ruff:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(curl:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(chmod:*)",
+      "Bash(goose:*)",
+      "Glob(**)",
+      "Grep(**)",
+      "Agent(*)"
+    ],
+    "deny": [
+      "Write(.env*)",
+      "Write(managed-settings.json)",
+      "Write(.claude/hooks/**)",
+      "Edit(.env*)",
+      "Bash(rm -rf:*)",
+      "Bash(sudo:*)",
+      "Bash(gh pr merge:*)"
+    ]
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "bash .claude/hooks/pre-tool-use.sh"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "bash .claude/hooks/post-tool-use.sh"
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "bash .claude/hooks/stop.sh"
+      }
+    ]
+  }
+}
