@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Supanat-Smost/tennis/backend/internal/service"
-	"github.com/Supanat-Smost/tennis/backend/internal/store"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/service"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/store"
 )
 
 // AuthedUser holds the resolved identity of the authenticated caller.

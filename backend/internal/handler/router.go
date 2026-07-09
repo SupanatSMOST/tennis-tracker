@@ -3,8 +3,8 @@ package handler
 import (
 	"net/http"
 
-	"github.com/Supanat-Smost/tennis/backend/internal/service"
-	"github.com/Supanat-Smost/tennis/backend/internal/store"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/service"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/store"
 )
 
 // BuildRouter constructs a ServeMux with all four routes registered.

@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/Supanat-Smost/tennis/backend/internal/model"
-	"github.com/Supanat-Smost/tennis/backend/internal/store"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/model"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/store"
 )
 
 // ErrInvalidCredentials is returned by Login when the username does not exist

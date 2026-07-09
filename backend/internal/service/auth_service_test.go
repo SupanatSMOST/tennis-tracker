@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/Supanat-Smost/tennis/backend/internal/service"
-	"github.com/Supanat-Smost/tennis/backend/internal/store"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/service"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/store"
 )
 
 // authTestHarness holds the constructed services and the raw pool for assertions.

@@ -1,4 +1,4 @@
-module github.com/Supanat-Smost/tennis/backend
+module github.com/SupanatSMOST/tennis-tracker/backend
 
 go 1.25.0
 

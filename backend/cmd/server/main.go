@@ -8,10 +8,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Supanat-Smost/tennis/backend/internal/config"
-	"github.com/Supanat-Smost/tennis/backend/internal/handler"
-	"github.com/Supanat-Smost/tennis/backend/internal/service"
-	"github.com/Supanat-Smost/tennis/backend/internal/store"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/config"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/handler"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/service"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/store"
 )
 
 func main() {

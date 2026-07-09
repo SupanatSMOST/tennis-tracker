@@ -21,9 +21,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Supanat-Smost/tennis/backend/internal/model"
-	"github.com/Supanat-Smost/tennis/backend/internal/service"
-	"github.com/Supanat-Smost/tennis/backend/internal/store"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/model"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/service"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/store"
 )
 
 // ── test-local helpers ───────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/Supanat-Smost/tennis/backend/internal/model"
+	"github.com/SupanatSMOST/tennis-tracker/backend/internal/model"
 )
 
 // ErrUsernameTaken is returned by CreateUserWithProfile when the username is
