@@ -151,9 +151,9 @@ func TestSchema_AC3_KeyColumnTypes(t *testing.T) {
 	ctx := context.Background()
 
 	type check struct {
-		table      string
-		column     string
-		wantType   string
+		table        string
+		column       string
+		wantType     string
 		wantNullable string // "YES" or "NO"
 	}
 	checks := []check{

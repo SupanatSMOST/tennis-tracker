@@ -8,12 +8,12 @@ import (
 
 func TestWriteError(t *testing.T) {
 	tests := []struct {
-		name        string
-		status      int
-		msg         string
-		wantStatus  int
-		wantBody    string
-		wantCT      string
+		name       string
+		status     int
+		msg        string
+		wantStatus int
+		wantBody   string
+		wantCT     string
 	}{
 		{
 			name:       "409 username already taken",

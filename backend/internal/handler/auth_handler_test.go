@@ -471,7 +471,7 @@ func TestLoginHandler_EmptyUsername(t *testing.T) {
 func TestLoginHandler_EmptyPassword(t *testing.T) {
 	h := newHandlerHarness(t)
 
-	rec := doLogin(t, h, `{"username":"` + uniqueUsername() + `","password":""}`)
+	rec := doLogin(t, h, `{"username":"`+uniqueUsername()+`","password":""}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("Login(empty password) status = %d, want 400", rec.Code)

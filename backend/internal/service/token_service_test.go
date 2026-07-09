@@ -114,9 +114,9 @@ func TestTokenService_Parse_Rejections(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		tokenStr       string
-		errSubstring   string // non-empty → check error message contains this
+		name         string
+		tokenStr     string
+		errSubstring string // non-empty → check error message contains this
 	}{
 		{
 			name:         "wrong key",
