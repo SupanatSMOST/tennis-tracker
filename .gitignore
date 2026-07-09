@@ -3,3 +3,4 @@ spike/
 files/*.tar.gz
 .env
 .env.*
+!.env.example
