@@ -130,6 +130,18 @@ succeeds (compile-only; no runtime; no signing). The app target links the `Tenni
 Deferred and explicitly NOT gated this slice: iOS simulator/UI tests, iOS CI job, and any runtime rendering/logout-navigation/live-submit assertions (spec §7).
 **Test:** run both gate commands; confirm green. Record which ACs each command proves.
 
+### Task 10 — RESULT (2026-07-09)
+1. **`swift test` (TennisCore): GREEN — 52 tests, 0 failures.** Proves AC1–AC19 (the real gate, spec §8). ✅
+2. **`xcodebuild build` (full-shell): BLOCKED by environment, NOT a code defect.** The iOS 26.5 platform is not installed as a resolvable destination (only the simulator SDK is present); destination resolution fails *before* the compiler runs. `project.pbxproj`/scheme are byte-identical to the Task-8 commit that produced a genuine `** BUILD SUCCEEDED **`. Task 8 proved the *project structure* compiles + links TennisCore — but with the real views PARKED (trivial app). So AC20 is verified only for the minimal project; full-shell codegen/link is unverified.
+3. **Full-shell type-check (compensating check for AC20/AC22 call-sites): GREEN.** `swiftc -typecheck` of all `ios/TennisShotTracker/TennisShotTracker/*.swift` against the iOS-built `TennisCore` module using the iOS SDK (`-sdk iphoneos -target arm64-apple-ios17.0`) exits 0 — no errors, no warnings. This confirms every TennisCore call-site in the shell (signup/login/logout/resolve, APIConfig, KeychainTokenStore, PasswordValidator, `APIError.backendMessage`, SessionState routing) is correct and iOS-only SwiftUI APIs resolve. It does NOT substitute for full link/codegen or simulator/UI tests.
+4. By inspection (reviewer): AC22 (no logic in app target) and AC23 (routing + Profile logout) hold.
+
+**Outstanding at Gate 2 (human decisions):**
+- **Build gate:** (a) install iOS 26.5 platform → re-run Task-8 `xcodebuild build` command over the full shell to green AC20 with full codegen; or (b) accept the compile-only app-target gate as deferred alongside the simulator/UI/CI work the spec already defers (§7/§8), on the strength of the green iOS type-check + Task-8 structural build.
+- **iCloud sync:** Gate-1 chose `kSecAttrAccessibleAfterFirstUnlock` (honored). The code comment claims iCloud sync but `kSecAttrSynchronizable` is never set (item is device-local — the auditor's safer posture). Decide whether to actually enable sync; either way the misleading comment needs a one-line correction (follow-up for coder).
+
+Deferred and explicitly NOT gated this slice: iOS simulator/UI tests, iOS CI job, full-shell link/codegen (env-blocked), and any runtime rendering/logout-navigation/live-submit assertions (spec §7).
+
 ---
 
 ## AC → Task coverage matrix
