@@ -369,6 +369,49 @@ func TestRequireAuth_DeletedUser(t *testing.T) {
 	assertUnauthorized(t, rec, res.ran)
 }
 
+// ── Unexpected DB error → 500 ─────────────────────────────────────────────────
+
+// TestRequireAuth_DBError verifies that when GetUserByID returns an unexpected
+// (non-ErrUserNotFound) DB error, RequireAuth responds with 500 and the body
+// {"error":"internal server error"} — no raw DB error text is leaked.
+//
+// Technique: close the pgxpool before issuing the request. The pool acquire
+// fails with a "closed pool" error (not pgx.ErrNoRows / ErrUserNotFound), so
+// the middleware hits the slog.ErrorContext + 500 branch.
+func TestRequireAuth_DBError(t *testing.T) {
+	pool := mwBuildPool(t)
+	s := store.New(pool)
+	tokens := service.NewTokenService(mwTestKey)
+	var res mwResult
+
+	// Close the pool now — pool.Close is sync.Once-guarded so the t.Cleanup
+	// registered by mwBuildPool will be a safe no-op.
+	pool.Close()
+
+	// Issue a valid, correctly-signed token for a throwaway UUID.
+	// The UUID is never looked up successfully; the pool-acquire error fires first.
+	tok, err := tokens.Issue(uuid.New())
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	mwApply(tokens, s, &res).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+	const wantBody = `{"error":"internal server error"}`
+	if got := rec.Body.String(); got != wantBody {
+		t.Errorf("body = %q, want %q", got, wantBody)
+	}
+	if res.ran {
+		t.Error("stub next-handler ran; it must not be called on 500 path")
+	}
+}
+
 // ── assertion helper ─────────────────────────────────────────────────────────
 
 // assertUnauthorized checks status 401, exact body, and that the stub did not run.
