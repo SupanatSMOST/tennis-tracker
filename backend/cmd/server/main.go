@@ -41,8 +41,10 @@ func main() {
 	tokens := service.NewTokenService(cfg.JWTSigningKey)
 	authSvc := service.NewAuthService(st, tokens)
 	authH := handler.NewAuthHandler(authSvc)
+	gameplaySvc := service.NewGameplayService(st)
+	gameplayH := handler.NewGameplayHandler(gameplaySvc)
 
-	router := handler.BuildRouter(authH, tokens, st)
+	router := handler.BuildRouter(authH, gameplayH, tokens, st)
 
 	// --- listen ---
 	addr := ":" + cfg.Port
