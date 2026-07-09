@@ -434,11 +434,11 @@ func TestGameplayService_AddRecords_ValidSourcesPassValidation_DBFree(t *testing
 			//       — proof that validation passed and execution reached the store.
 			//   (b) No error that is a ValidationError.
 			// We recover from the panic to avoid failing the test.
+			panicked := false
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						// Panic means we passed validation — that's what we want.
-						// The nil deref is the store being called.
+						panicked = true // nil-store panic means validation passed — desired outcome
 					}
 				}()
 				_, err := svc.AddRecords(ctx, matchID, userID, shots)
@@ -451,6 +451,9 @@ func TestGameplayService_AddRecords_ValidSourcesPassValidation_DBFree(t *testing
 					// normally it panics. Either way it is not a ValidationError.
 				}
 			}()
+			if !panicked {
+				t.Logf("source %v: no panic — store returned non-ValidationError (acceptable)", tt.source)
+			}
 		})
 	}
 }
@@ -468,10 +471,11 @@ func TestGameplayService_CreateMatch_ValidSurfacesPassValidation_DBFree(t *testi
 	for _, surface := range []string{"hard", "clay", "grass"} {
 		t.Run(surface, func(t *testing.T) {
 			svc := newNilStoreGameplayService()
+			panicked := false
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						// Nil deref at store call — validation passed. Desired outcome.
+						panicked = true // nil-store panic means validation passed — desired outcome
 					}
 				}()
 				_, err := svc.CreateMatch(ctx, userID, surface, nil, nil)
@@ -482,6 +486,9 @@ func TestGameplayService_CreateMatch_ValidSurfacesPassValidation_DBFree(t *testi
 					}
 				}
 			}()
+			if !panicked {
+				t.Logf("surface %q: no panic — store returned non-ValidationError (acceptable)", surface)
+			}
 		})
 	}
 }
