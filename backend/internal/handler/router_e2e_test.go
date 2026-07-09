@@ -127,7 +127,7 @@ func e2eGet(t *testing.T, srv *httptest.Server, path, authHeader string) *http.R
 // decodeJSON decodes the response body into target and closes the body.
 func decodeJSON(t *testing.T, resp *http.Response, target any) {
 	t.Helper()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
 		t.Fatalf("decodeJSON: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestRouter_Health(t *testing.T) {
 	srv, _ := e2eBuildServer(t, testSigningKey)
 
 	resp := e2eGet(t, srv, "/health", "")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /health: want 200, got %d", resp.StatusCode)
@@ -260,7 +260,7 @@ func TestRouter_MeBadToken(t *testing.T) {
 	}
 
 	resp := e2eGet(t, srv, "/me", "Bearer "+badToken)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("GET /me (wrong-key token): want 401, got %d", resp.StatusCode)
@@ -281,7 +281,7 @@ func TestRouter_MeNoToken(t *testing.T) {
 	srv, _ := e2eBuildServer(t, testSigningKey)
 
 	resp := e2eGet(t, srv, "/me", "")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("GET /me (no token): want 401, got %d", resp.StatusCode)
@@ -294,13 +294,13 @@ func TestRouter_HealthNoToken(t *testing.T) {
 	srv, _ := e2eBuildServer(t, testSigningKey)
 
 	healthResp := e2eGet(t, srv, "/health", "")
-	defer healthResp.Body.Close()
+	defer func() { _ = healthResp.Body.Close() }()
 	if healthResp.StatusCode != http.StatusOK {
 		t.Errorf("GET /health (no token): want 200, got %d", healthResp.StatusCode)
 	}
 
 	meResp := e2eGet(t, srv, "/me", "")
-	defer meResp.Body.Close()
+	defer func() { _ = meResp.Body.Close() }()
 	if meResp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("GET /me (no token): want 401, got %d", meResp.StatusCode)
 	}
@@ -328,7 +328,7 @@ func TestRouter_SignupDuplicateUsername(t *testing.T) {
 
 	// Second signup with same username — must be 409.
 	second := e2ePost(t, srv, "/auth/signup", body)
-	defer second.Body.Close()
+	defer func() { _ = second.Body.Close() }()
 	if second.StatusCode != http.StatusConflict {
 		t.Errorf("duplicate signup: want 409, got %d", second.StatusCode)
 	}
@@ -375,7 +375,7 @@ func TestRouter_LoginInvalidCredentials(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body := fmt.Sprintf(`{"username":%q,"password":%q}`, tt.username, tt.password)
 			resp := e2ePost(t, srv, "/auth/login", body)
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != http.StatusUnauthorized {
 				t.Errorf("login %q: want 401, got %d", tt.name, resp.StatusCode)
@@ -405,7 +405,7 @@ func TestRouter_WrongMethodOnHealth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("POST /health: want 405, got %d", resp.StatusCode)
