@@ -269,6 +269,63 @@ func TestSchema_AC5_MatchSummaryCompositePK(t *testing.T) {
 	}
 }
 
+// TestMigration00003_IdxRecordMatchID verifies that migration 00003 created the
+// idx_record_match_id index on the record table, and that the record table shape
+// is unchanged (columns added by 00002 are still present with correct types).
+func TestMigration00003_IdxRecordMatchID(t *testing.T) {
+	pool := openPool(t)
+	ctx := context.Background()
+
+	// AC6/AC7: the index must exist after goose up.
+	t.Run("index_exists", func(t *testing.T) {
+		var count int
+		err := pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM pg_indexes
+			 WHERE schemaname = 'public'
+			   AND tablename  = 'record'
+			   AND indexname  = 'idx_record_match_id'`,
+		).Scan(&count)
+		if err != nil {
+			t.Fatalf("querying pg_indexes: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("idx_record_match_id row count = %d, want 1", count)
+		}
+	})
+
+	// Spot-check: 00002 record columns are unchanged (no column/type/nullability change).
+	type check struct {
+		column       string
+		wantType     string
+		wantNullable string
+	}
+	recordCols := []check{
+		{"record_id", "uuid", "NO"},
+		{"match_id", "uuid", "NO"},
+		{"zone", "text", "YES"},
+		{"source", "text", "YES"},
+		{"court_x", "real", "YES"},
+		{"court_y", "real", "YES"},
+		{"ts_ms", "integer", "YES"},
+		{"created_at", "timestamp with time zone", "NO"},
+	}
+	for _, c := range recordCols {
+		c := c
+		t.Run("record."+c.column, func(t *testing.T) {
+			ci, err := getColumnInfo(ctx, pool, "record", c.column)
+			if err != nil {
+				t.Fatalf("getColumnInfo(record, %q): %v", c.column, err)
+			}
+			if ci.dataType != c.wantType {
+				t.Errorf("data_type = %q, want %q", ci.dataType, c.wantType)
+			}
+			if ci.isNullable != c.wantNullable {
+				t.Errorf("is_nullable = %q, want %q", ci.isNullable, c.wantNullable)
+			}
+		})
+	}
+}
+
 // TestSchema_AC6_ForeignKeys verifies AC6: all four declared FKs exist.
 func TestSchema_AC6_ForeignKeys(t *testing.T) {
 	pool := openPool(t)
