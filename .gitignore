@@ -4,3 +4,11 @@ files/*.tar.gz
 .env
 .env.*
 !.env.example
+
+# Swift / SwiftPM
+.build/
+build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
