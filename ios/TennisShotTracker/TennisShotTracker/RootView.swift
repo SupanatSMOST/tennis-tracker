@@ -5,6 +5,7 @@ import TennisCore
 /// the session state observed from SessionStore (AC23).
 struct RootView: View {
     let sessionStore: SessionStore
+    let matchClient: MatchClient
 
     var body: some View {
         switch sessionStore.state {
@@ -16,7 +17,7 @@ struct RootView: View {
             AuthView(sessionStore: sessionStore)
 
         case .authenticated:
-            TabShellView(sessionStore: sessionStore)
+            TabShellView(sessionStore: sessionStore, matchClient: matchClient)
         }
     }
 }
