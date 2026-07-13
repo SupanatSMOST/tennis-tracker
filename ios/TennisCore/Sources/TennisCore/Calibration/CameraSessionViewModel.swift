@@ -195,6 +195,25 @@ public final class CameraSessionViewModel {
         state = .done
     }
 
+    /// Clears all accumulated corner taps and returns to the `.previewing` state.
+    ///
+    /// Implements OQ-5 (Redo): the user can restart the 4-corner tap sequence from
+    /// Top-Left at any point during the tapping phase.  Safe to call from `.previewing`
+    /// or `.tappingCorners`; a no-op in any other state so the view does not need to
+    /// guard.
+    public func resetCorners() {
+        guard case .previewing = state else {
+            guard case .tappingCorners = state else { return }
+            imagePoints = []
+            homography = nil
+            state = .previewing
+            return
+        }
+        // Already in .previewing — nothing to clear.
+        imagePoints = []
+        homography = nil
+    }
+
     /// Persists the computed calibration for `matchId` via `CalibrationStore`.
     ///
     /// Builds a `CourtCalibration` through the **shared** `homography:` init
