@@ -8,8 +8,9 @@
 iOS-first app that records a tennis session on video and stores, per shot, which court zone the ball landed in.
 
 **Stack:** Go + PostgreSQL (backend) · Swift/SwiftUI (iOS) · Python (CV pipeline)
-**Current phase:** Phase 0 step 1 ✅ done. Awaiting footage for steps 2 & 3 (see SPIKE_RESULT.md).
-**Phase 1 gate:** bounce localized within ~one zone width on phone footage → proceed. Fall back to manual tap-to-tag if not.
+**Current phase:** Phase 2 — camera framing + 4-corner tap + homography + video recording.
+**Phase 1:** ✅ complete (auth + gameplay CRUD backend, iOS auth shell + gameplay screens, manual tap-to-tag, 3 PRs merged).
+**Phase 0 CV spike:** Step A ✅ (37 bounces on broadcast footage, 91% ball track). Step B pending (phone footage).
 
 ## Build & Test
 
