@@ -289,4 +289,80 @@ final class CalibrationStoreTests: XCTestCase {
             "AC10a: h02 and h20 must differ for the non-diagonal offset-rect matrix — matrix may be diagonal/identity"
         )
     }
+
+    // MARK: - Phase 3 boundary hardening: persisted row-major [Float] recovers correct mapping
+
+    /// Proves that a Phase 3 consumer reading the persisted `homographyMatrix` with the
+    /// documented row-major convention (`element(r,c) == m[3*r+c]`) can reconstruct the
+    /// homography and forward-map image points to the correct court positions.
+    ///
+    /// Critically, this test loads from the store — not from the in-memory `simd_float3x3` —
+    /// so it exercises the full save→JSON→load→reconstruct pipeline that Phase 3 will use.
+    func testPhase3_persistedRowMajor_forwardMappingCorrect() throws {
+        // 1. Compute homography for the AC2 non-diagonal offset rect.
+        let H = try XCTUnwrap(
+            HomographyService.compute(
+                imagePoints: offsetRectImagePoints,
+                courtPoints: unitSquareCGPoints
+            ),
+            "Phase3: HomographyService.compute returned nil for offset-rect input"
+        )
+
+        // 2. Build CourtCalibration via the shared conversion seam and persist it.
+        let matchId = "match-phase3-rowmajor"
+        let cal = CourtCalibration(
+            matchId: matchId,
+            imagePoints: offsetRectImagePointsCodable,
+            courtPoints: unitSquarePoints,
+            homography: H
+        )
+        let store = makeStore()
+        try store.save(cal)
+
+        // 3. Load from disk — this is the array Phase 3 will read.
+        let loaded = try XCTUnwrap(
+            store.load(for: matchId),
+            "Phase3: load returned nil after save"
+        )
+
+        // 4. Reconstruct simd_float3x3 from the persisted [Float] using the documented
+        //    row-major convention: element (row r, col c) == m[3*r + c].
+        //    simd_float3x3(rows:) builds a matrix where row r == the given SIMD3.
+        let m = loaded.homographyMatrix
+        let reconstructedH = simd_float3x3(rows: [
+            SIMD3<Float>(m[0], m[1], m[2]),
+            SIMD3<Float>(m[3], m[4], m[5]),
+            SIMD3<Float>(m[6], m[7], m[8]),
+        ])
+
+        // 5. Forward-map helper: reconstructedH * [x, y, 1], then normalize by .z.
+        func mapPoint(x: Double, y: Double) -> (Float, Float) {
+            let p = reconstructedH * SIMD3<Float>(Float(x), Float(y), 1)
+            return (p.x / p.z, p.y / p.z)
+        }
+
+        let eps: Float = 1e-4
+
+        // 4 corner image points → unit-square court corners.
+        let (tlU, tlV) = mapPoint(x: 100,  y: 50)
+        XCTAssertEqual(tlU, 0.0, accuracy: eps, "Phase3: TL x should map to 0, got \(tlU)")
+        XCTAssertEqual(tlV, 0.0, accuracy: eps, "Phase3: TL y should map to 0, got \(tlV)")
+
+        let (trU, trV) = mapPoint(x: 1920, y: 50)
+        XCTAssertEqual(trU, 1.0, accuracy: eps, "Phase3: TR x should map to 1, got \(trU)")
+        XCTAssertEqual(trV, 0.0, accuracy: eps, "Phase3: TR y should map to 0, got \(trV)")
+
+        let (blU, blV) = mapPoint(x: 100,  y: 1080)
+        XCTAssertEqual(blU, 0.0, accuracy: eps, "Phase3: BL x should map to 0, got \(blU)")
+        XCTAssertEqual(blV, 1.0, accuracy: eps, "Phase3: BL y should map to 1, got \(blV)")
+
+        let (brU, brV) = mapPoint(x: 1920, y: 1080)
+        XCTAssertEqual(brU, 1.0, accuracy: eps, "Phase3: BR x should map to 1, got \(brU)")
+        XCTAssertEqual(brV, 1.0, accuracy: eps, "Phase3: BR y should map to 1, got \(brV)")
+
+        // Image center → (0.5, 0.5) under a rect→unit-square affine map.
+        let (cxU, cxV) = mapPoint(x: 1010, y: 565)
+        XCTAssertEqual(cxU, 0.5, accuracy: eps, "Phase3: center x should map to 0.5, got \(cxU)")
+        XCTAssertEqual(cxV, 0.5, accuracy: eps, "Phase3: center y should map to 0.5, got \(cxV)")
+    }
 }
