@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import TennisCore
 
 /// In-session recording screen.
@@ -6,22 +7,37 @@ import TennisCore
 /// On each tap: calls ZoneClassifier.classify(point:in:) with the tap location
 /// and diagram rect, then passes the zone string to viewModel.record(zone:).
 /// No zone math in this file beyond the ZoneClassifier call (AC30).
+///
+/// Phase-2 camera param (AC26 / FR-V3 / D-2):
+/// `cameraVM` is a **trailing optional defaulting to `nil`** — the existing
+/// `RecordSessionView(matchClient:matchID:path:)` call site compiles unchanged.
+/// When nil → Phase-1 behavior exactly (no camera UI).
+/// When non-nil → auto-starts recording on appear; shows a preview thumbnail
+/// and REC badge; End Match stops recording before the backend post.
 struct RecordSessionView: View {
     let matchClient: MatchClient
     let matchID: String
     @Binding var path: [Route]
+    let cameraVM: CameraSessionViewModel?
 
     @State private var viewModel: RecordSessionViewModel
 
-    init(matchClient: MatchClient, matchID: String, path: Binding<[Route]>) {
+    init(matchClient: MatchClient, matchID: String, path: Binding<[Route]>, cameraVM: CameraSessionViewModel? = nil) {
         self.matchClient = matchClient
         self.matchID = matchID
         self._path = path
+        self.cameraVM = cameraVM
         _viewModel = State(initialValue: RecordSessionViewModel(client: matchClient, matchID: matchID))
     }
 
     var body: some View {
         VStack(spacing: 16) {
+            // Camera preview thumbnail + REC badge (Phase 2, non-nil cameraVM only)
+            if let cam = cameraVM {
+                CameraRecordingBadgeView(cameraVM: cam)
+                    .padding(.horizontal)
+            }
+
             // Shot counter
             HStack {
                 Label("\(viewModel.count) shots", systemImage: "tennisball")
@@ -64,10 +80,82 @@ struct RecordSessionView: View {
                 path = [.summary(id)]
             }
         }
+        .task {
+            // OQ-6: auto-start recording on entry when cameraVM is present.
+            if let cam = cameraVM {
+                try? cam.startRecording(matchId: matchID)
+            }
+        }
     }
 
     private func endMatch() {
-        Task { await viewModel.endMatch() }
+        Task {
+            // AC26 / D-2 ordering: stop recording BEFORE the backend endMatch post.
+            if let cam = cameraVM {
+                try? await cam.stopRecording()
+            }
+            await viewModel.endMatch()
+        }
+    }
+}
+
+// MARK: - Camera recording badge (Phase 2)
+
+/// Shown inside RecordSessionView only when cameraVM != nil.
+/// Displays a small live-preview thumbnail and a pulsing "● REC" badge while
+/// the camera state is `.recording`.
+private struct CameraRecordingBadgeView: View {
+    let cameraVM: CameraSessionViewModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Inline preview thumbnail
+            CameraThumbView(previewLayer: cameraVM.camera.previewLayer)
+                .frame(width: 80, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                )
+
+            if cameraVM.state == .recording {
+                Label("REC", systemImage: "circle.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.red)
+            }
+
+            Spacer()
+        }
+    }
+}
+
+/// A tiny UIViewRepresentable that renders a preview layer in a SwiftUI frame.
+private struct CameraThumbView: UIViewRepresentable {
+    let previewLayer: AVCaptureVideoPreviewLayer
+
+    func makeUIView(context: Context) -> ThumbUIView {
+        let view = ThumbUIView()
+        view.attach(previewLayer)
+        return view
+    }
+
+    func updateUIView(_ uiView: ThumbUIView, context: Context) {
+        uiView.setNeedsLayout()
+    }
+}
+
+private final class ThumbUIView: UIView {
+    override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+
+    func attach(_ previewLayer: AVCaptureVideoPreviewLayer) {
+        guard let layer = self.layer as? AVCaptureVideoPreviewLayer else { return }
+        layer.session = previewLayer.session
+        layer.videoGravity = .resizeAspectFill
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.frame = bounds
     }
 }
 

@@ -3,13 +3,22 @@ import SwiftUI
 import TennisCore
 
 /// Home tab — shows all matches, most-recent-first. Toolbar "+" presents CreateMatchSheet.
-/// Tapping a match routes by isActive: active → RecordSessionView, ended → MatchSummaryView.
-/// No networking, decoding, or zone-mapping logic (AC30).
+/// Tapping a match routes by isActive: active → CameraSetupView → CornerTapView → RecordSessionView,
+/// ended → MatchSummaryView. No networking, decoding, or zone-mapping logic (AC30).
+///
+/// Phase-2 routing (FR-V5 / D-1 / AC27):
+/// - Active match tap: constructs ONE `CameraSessionViewModel`, stores it in `@State cameraVM`,
+///   then pushes `.cameraSetup(id)` — the same VM instance flows through `.cornerTap` and
+///   `.session` destinations via the navigationDestination switch.
+/// - Ended match tap: `.summary` path is unchanged (AC27).
 struct MatchListView: View {
     let matchClient: MatchClient
     @State private var viewModel: MatchListViewModel
     @State private var path: [Route] = []
     @State private var showCreate = false
+    /// The single shared CameraSessionViewModel for the current active-match flow (FR-V5 / D-1).
+    /// Constructed once on active-match entry; nil between navigations (AC27).
+    @State private var cameraVM: CameraSessionViewModel?
 
     init(matchClient: MatchClient) {
         self.matchClient = matchClient
@@ -30,10 +39,15 @@ struct MatchListView: View {
                         }
                         ForEach(viewModel.matches, id: \.id) { match in
                             Button {
-                                let route: Route = viewModel.isActive(match)
-                                    ? .session(match.id)
-                                    : .summary(match.id)
-                                path.append(route)
+                                if viewModel.isActive(match) {
+                                    // Active match: construct the shared VM and enter
+                                    // the camera setup flow (Phase 2, FR-V5).
+                                    cameraVM = CameraSessionViewModel(camera: CameraService())
+                                    path.append(.cameraSetup(match.id))
+                                } else {
+                                    // Ended match: summary path unchanged (AC27).
+                                    path.append(.summary(match.id))
+                                }
                             } label: {
                                 MatchRowView(match: match)
                             }
@@ -58,7 +72,9 @@ struct MatchListView: View {
             .onChange(of: viewModel.createdMatch?.id) { _, newID in
                 if let id = newID {
                     showCreate = false
-                    path.append(.session(id))
+                    // Newly created match is active — route through camera setup (FR-V5).
+                    cameraVM = CameraSessionViewModel(camera: CameraService())
+                    path.append(.cameraSetup(id))
                 }
             }
             .task {
@@ -66,9 +82,21 @@ struct MatchListView: View {
             }
             .navigationDestination(for: Route.self) { route in
                 switch route {
+                case .cameraSetup(let matchID):
+                    if let cam = cameraVM {
+                        CameraSetupView(cameraVM: cam, matchID: matchID, path: $path)
+                    }
+                case .cornerTap(let matchID):
+                    if let cam = cameraVM {
+                        CornerTapView(cameraVM: cam, matchID: matchID, path: $path)
+                    }
                 case .session(let matchID):
-                    RecordSessionView(matchClient: matchClient, matchID: matchID, path: $path)
+                    // cameraVM may be nil if the user reaches .session via a
+                    // direct deep-link or future code path — the optional default
+                    // in RecordSessionView handles that gracefully (AC26).
+                    RecordSessionView(matchClient: matchClient, matchID: matchID, path: $path, cameraVM: cameraVM)
                 case .summary(let matchID):
+                    // Ended-match path: unchanged (AC27).
                     MatchSummaryView(matchClient: matchClient, matchID: matchID)
                 }
             }
@@ -79,7 +107,13 @@ struct MatchListView: View {
 // MARK: - Route
 
 enum Route: Hashable {
+    /// Phase 2: live preview + framing guide before corner taps.
+    case cameraSetup(String)
+    /// Phase 2: sequential 4-corner tap to calibrate court homography.
+    case cornerTap(String)
+    /// Active recording session (manual zone-tap grid).
     case session(String)
+    /// Post-match summary for ended matches (AC27: unchanged).
     case summary(String)
 }
 
