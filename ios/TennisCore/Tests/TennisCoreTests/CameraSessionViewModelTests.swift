@@ -337,6 +337,99 @@ final class CameraSessionViewModelTests: XCTestCase {
         )
     }
 
+    // MARK: - OQ-5: resetCorners()
+
+    /// Test 1 — from .tappingCorners (2 taps already recorded):
+    /// resetCorners() must clear imagePoints, set homography to nil, and
+    /// transition back to .previewing.
+    func testResetCorners_fromTappingCorners_clearsAndReturnsToPreviewing() async {
+        let (vm, _) = makeVM()
+        await vm.startPreview()
+
+        // Land in .tappingCorners(count: 2) by tapping twice.
+        for tap in quadPixelTaps.prefix(2) {
+            vm.tapCorner(at: CGPoint(x: tap.x, y: tap.y), imageSize: quadImageSize)
+        }
+        XCTAssertEqual(vm.state, .tappingCorners(count: 2), "setup: state must be .tappingCorners(count:2)")
+        XCTAssertEqual(vm.imagePoints.count, 2, "setup: 2 image points must be accumulated")
+
+        vm.resetCorners()
+
+        XCTAssertEqual(
+            vm.state,
+            .previewing,
+            "OQ-5: resetCorners() from .tappingCorners must return state to .previewing"
+        )
+        XCTAssertTrue(
+            vm.imagePoints.isEmpty,
+            "OQ-5: resetCorners() from .tappingCorners must clear imagePoints (got \(vm.imagePoints.count))"
+        )
+        XCTAssertNil(
+            vm.homography,
+            "OQ-5: resetCorners() from .tappingCorners must leave homography nil"
+        )
+    }
+
+    /// Test 2 — from .calibrated (all 4 taps done):
+    /// resetCorners() must be a no-op — state, imagePoints, and homography unchanged.
+    ///
+    /// OQ-5 redo is scoped to the tapping phase; .calibrated is neither
+    /// .previewing nor .tappingCorners so the guard exits immediately.
+    func testResetCorners_fromCalibrated_isNoOp() async {
+        let (vm, _) = makeVM()
+        await vm.startPreview()
+        tapQuad(on: vm)
+
+        XCTAssertEqual(vm.state, .calibrated, "setup: state must be .calibrated after 4 taps")
+        XCTAssertEqual(vm.imagePoints.count, 4, "setup: 4 image points must be accumulated")
+        XCTAssertNotNil(vm.homography, "setup: homography must be non-nil after calibration")
+
+        let imagePointsBefore = vm.imagePoints
+        vm.resetCorners()
+
+        XCTAssertEqual(
+            vm.state,
+            .calibrated,
+            "OQ-5: resetCorners() from .calibrated must not change state"
+        )
+        XCTAssertEqual(
+            vm.imagePoints.count,
+            imagePointsBefore.count,
+            "OQ-5: resetCorners() from .calibrated must not modify imagePoints (count changed)"
+        )
+        XCTAssertNotNil(
+            vm.homography,
+            "OQ-5: resetCorners() from .calibrated must leave homography non-nil"
+        )
+    }
+
+    /// Test 3 — from .previewing with zero taps:
+    /// resetCorners() is an idempotent no-op — state stays .previewing,
+    /// imagePoints remain empty.
+    func testResetCorners_fromPreviewing_isIdempotent() async {
+        let (vm, _) = makeVM()
+        await vm.startPreview()
+
+        XCTAssertEqual(vm.state, .previewing, "setup: state must be .previewing")
+        XCTAssertTrue(vm.imagePoints.isEmpty, "setup: imagePoints must be empty before reset")
+
+        vm.resetCorners()
+
+        XCTAssertEqual(
+            vm.state,
+            .previewing,
+            "OQ-5: resetCorners() from .previewing must leave state as .previewing"
+        )
+        XCTAssertTrue(
+            vm.imagePoints.isEmpty,
+            "OQ-5: resetCorners() from .previewing must leave imagePoints empty"
+        )
+        XCTAssertNil(
+            vm.homography,
+            "OQ-5: resetCorners() from .previewing must leave homography nil"
+        )
+    }
+
     // MARK: - AC23: full state-machine walk in a single test
 
     func testAC23_fullStateMachineWalk() async throws {
