@@ -129,9 +129,22 @@ the array ends (n < 2 or n ≥ count-2) and frames with any nil lag are skipped.
 **Threshold:** bounce if predicted probability `> 0.45` (strict greater-than,
 matching `np.where(preds > self.threshold)` in `bounce_detector.py`).
 
-**Intentionally NOT ported (OQ-6=no-dedup locked):**
-- `smooth_predictions` — cubic-spline gap extrapolation
-- `postprocess` — consecutive-bounce deduplication filter
+**Ported from Phase-0:**
+- `postprocess` (bounce_detector.py:88-96) — consecutive-bounce collapse: within a single
+  analysis run, collapses runs of consecutive above-threshold frames to one bounce (keeps
+  the frame that beats its predecessor within the run, faithful to Phase-0). This is a
+  within-run operation; it is distinct from OQ-6 (which covers cross-run re-analysis).
+
+**Known Phase-0 fidelity gap (NOT ported — must be validated at on-device parity gate):**
+- `smooth_predictions` (bounce_detector.py:61-78): cubic-spline extrapolation of ≤5-frame
+  gaps in the ball track, run before feature extraction (`predict(smooth=True)` by default).
+  Not ported in v1: requires scipy CubicSpline with no clean Swift equivalent; porting risks
+  silent numerical divergence. On the ~33%-populated real tracks from the spike, dropping
+  this means more nil lags at feature extraction time → real bounces may be silently
+  suppressed. This gap MUST be validated at the on-device Phase-0 numerical-parity gate
+  (Gate-2 item) by running both Phase-0 Python and the Swift port against the same clip and
+  comparing bounce frame counts. NOTE: this is unrelated to OQ-6 (which covers cross-run
+  re-analysis, not within-run smoothing).
 
 **Confirmation hook:** after running `python cv/convert_models.py`, the printed
 `BounceDetector` input spec should show 12 columns. Verify that the feature names

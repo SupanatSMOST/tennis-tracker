@@ -7,12 +7,20 @@
 /// Build-only: correctness is validated manually on-device.  No unit tests
 /// exercise this file (model file absent in CI — plan §2 / Task 8).
 ///
-/// ## Phase-0 post-processing (deliberately NOT byte-equivalent)
+/// ## Phase-0 post-processing
 /// The Phase-0 spike (`ball_detector.py`) uses:
-///   argmax → ×255 (in-place on float) → cast uint8 → threshold@127 →
+///   argmax → ×255 (in-place on int) → cast uint8 → threshold@127 →
 ///   HoughCircles → temporal prev-frame distance gating → ×2.
 ///
-/// This implementation uses: argmax → threshold@128 → centroid → ×2.
+/// This implementation uses: argmax → (f*255)%256 wrap → threshold>127 →
+/// centroid → ×2.
+///
+/// The wrap is a clean arithmetic inversion (ball_detector.py:54-57):
+///   `feature_map *= 255` on an argmax index f ∈ {0..255} produces
+///   `f * 255 mod 256 = 256 - f` for f ≥ 1, and 0 for f = 0.
+///   `cv2.threshold(..., 127, THRESH_BINARY)` then keeps value > 127, i.e.
+///   256-f > 127, i.e. f ∈ {1..128}.  CRITICAL: f=0 is background and is
+///   excluded by this arithmetic (0 is never > 127).
 ///
 /// Deliberate divergences (flagged, not bugs):
 ///   (a) **Centroid, not HoughCircles.**  CoreML/Swift has no built-in
@@ -20,13 +28,7 @@
 ///       threshold pixels) is equivalent for a compact ball blob.
 ///   (b) **No temporal prev-frame distance gating.**  Outlier rejection is
 ///       deferred to a future refinement pass.
-///   (c) **Threshold T = 128 (clean intensity threshold, not via ×255/uint8).**
-///       Phase-0's `feature_map *= 255` followed by `astype(uint8)` produces
-///       chaotic wrapping behaviour (e.g. argmax=255→uint8 1, argmax=200→uint8
-///       56) that makes the effective threshold unpredictable.  Using argmax
-///       index directly as intensity and thresholding at 128 is the sane,
-///       intentional choice.  This is **not** byte-equivalent to Phase-0.
-///   (d) **Nearest-neighbour resize** (Phase-0 uses `cv2.resize` bilinear).
+///   (c) **Nearest-neighbour resize** (Phase-0 uses `cv2.resize` bilinear).
 ///
 /// ## Input pixel buffer assumption
 /// `track(frames:)` expects **BGRA** `CVPixelBuffer`s (kCVPixelFormatType_32BGRA),
@@ -63,10 +65,6 @@ public final class BallTrackerInference: BallTracking {
 
     /// Number of output channels (TrackNet head output).
     private let modelChannels = 256
-
-    /// Argmax index threshold: any argmax value ≥ 128 is treated as a
-    /// confident ball detection.  See header for rationale vs Phase-0.
-    private let detectionThreshold: Float = 128.0
 
     // MARK: - Private state
 
@@ -118,11 +116,12 @@ public final class BallTrackerInference: BallTracking {
     /// BGR, normalised [0,1].  Frames 0 and 1 cannot form a full triplet and
     /// always return `nil`.  Frame `i` (i ≥ 2) uses the triplet `[i, i-1, i-2]`.
     ///
-    /// Post-processing per frame:
-    ///   1. argmax over 256 channels → intensity map (H×W).
-    ///   2. Threshold at 128 → ball-blob mask.
-    ///   3. Centroid of blob pixels → (cx, cy) in [0,360)×[0,640) space.
-    ///   4. Scale ×2 → (x, y) in landscape 1280×720 space (OQ-1).
+    /// Post-processing per frame (Phase-0 faithful, ball_detector.py:38,54-57):
+    ///   1. argmax over 256 channels → index f ∈ {0..255} per pixel (H×W).
+    ///   2. Apply Phase-0 wrap: value = (f * 255) % 256  (i.e. 256-f for f≥1, 0 for f=0).
+    ///   3. Keep pixels where value > 127  → selects argmax band f ∈ {1..128} as ball.
+    ///   4. Centroid of kept pixels → (cx, cy) in [0,360)×[0,640) space.
+    ///   5. Scale ×2 → (x, y) in landscape 1280×720 space (OQ-1).
     public func track(frames: [CVPixelBuffer]) async throws -> [(x: Float, y: Float)?] {
         guard !frames.isEmpty else { return [] }
 
@@ -234,7 +233,7 @@ public final class BallTrackerInference: BallTracking {
         }
     }
 
-    /// Applies `argmax → threshold → centroid → ×2` to a `(1,256,H,W)` heatmap.
+    /// Applies `argmax → (f*255)%256 wrap → threshold>127 → centroid → ×2` to a `(1,256,H,W)` heatmap.
     ///
     /// Reads actual strides from `heatmap` to handle non-contiguous output
     /// layouts that some coremltools conversions produce.  Throws
@@ -277,21 +276,28 @@ public final class BallTrackerInference: BallTracking {
         var blobCount: Int  = 0
 
         // argmax over nC channels at each (row, col) position.
+        // Phase-0 faithful: apply ball_detector.py:54-57 wrap before threshold.
+        //   feature_map *= 255  →  value = (f * 255) % 256  (= 256-f for f≥1, 0 for f=0)
+        //   cv2.threshold(..., 127, THRESH_BINARY)  →  keep value > 127  →  f ∈ {1..128}
+        // f=0 is background (excluded: value=0, never > 127).
+        // DO NOT simplify to "f <= 128" — that includes f=0 (background) and collapses
+        // every frame centroid to frame center.
         for row in 0 ..< nH {
             for col in 0 ..< nW {
-                var maxIdx: Float = 0
+                var maxIdx: Int = 0
                 var maxVal: Float = -.infinity
 
                 for ch in 0 ..< nC {
                     let v = ptr[ch * s1 + row * s2 + col * s3]
                     if v > maxVal {
                         maxVal = v
-                        maxIdx = Float(ch)
+                        maxIdx = ch
                     }
                 }
 
-                // Threshold: argmax index treated as intensity (0–255).
-                if maxIdx >= detectionThreshold {
+                // Apply Phase-0 wrap (ball_detector.py:54-57): f→(f*255)%256, keep >127.
+                let wrappedValue = (maxIdx * 255) % 256
+                if wrappedValue > 127 {
                     blobSumX += Float(col)
                     blobSumY += Float(row)
                     blobCount += 1

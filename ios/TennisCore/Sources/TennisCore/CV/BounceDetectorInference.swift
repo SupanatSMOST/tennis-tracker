@@ -64,23 +64,45 @@ public final class BounceDetectorInference: BounceDetecting {
     ///    column order (x-block then y-block, defined in cv/README.md §5).
     /// 2. Runs the CatBoost CoreML model and reads the predicted probability.
     /// 3. Applies threshold `> 0.45` (strict, matching `np.where(preds > threshold)`).
+    /// 4. Applies `postprocess` consecutive-bounce collapse (Phase-0 faithful,
+    ///    bounce_detector.py:88-96): collapses runs of consecutive compacted-index
+    ///    above-threshold frames to a single bounce (keeps the highest-prob frame
+    ///    in the run via predecessor-comparison, matching Phase-0 exactly).
     ///
     /// Frames near the ends (fewer than 2 neighbours on either side) and frames
     /// with any nil lag are skipped silently (not scored).
     ///
-    /// Intentionally NOT ported from Phase-0:
-    /// - `smooth_predictions` (cubic-spline extrapolation) — OQ-6=no-dedup locked
-    /// - `postprocess` (consecutive-bounce deduplication) — OQ-6=no-dedup locked
+    /// Known Phase-0 fidelity gap (not ported — see cv/README.md §5):
+    /// - `smooth_predictions` (cubic-spline gap extrapolation, bounce_detector.py:61-78):
+    ///   requires scipy CubicSpline with no clean Swift equivalent; porting risks
+    ///   silent numerical divergence. This is a known gap to be validated/closed
+    ///   at the on-device Phase-0 numerical-parity gate (Gate-2 item). On the
+    ///   ~33%-populated real tracks from the spike, dropping smooth_predictions
+    ///   means more nil lags at feature extraction time → real bounces may be
+    ///   silently suppressed. Consequence documented; not hidden.
     ///
-    /// - Returns: Set of ORIGINAL-video frame indices where bounce probability > 0.45.
+    /// - Returns: Set of ORIGINAL-video frame indices where bounce probability > 0.45,
+    ///   after consecutive-bounce collapse.
     /// - Throws: Any `MLModel` prediction error.
     public func detectBounces(
         ballPoints: [(index: Int, point: (x: Float, y: Float)?)]
     ) async throws -> Set<Int> {
-        var bounceIndices = Set<Int>()
         let eps: Double = 1e-15
         let threshold: Double = 0.45
         let count = ballPoints.count
+
+        // Phase-0 postprocess operates on compacted position (not original frame
+        // index): ind_bounce[i] - ind_bounce[i-1] == 1 means adjacent in the
+        // guard-passing sequence. A below-threshold surviving frame between two
+        // above-threshold frames DOES break the run; a nil/skipped frame does NOT
+        // (it never got a compacted position). Track k for each guard-passing frame.
+        struct ScoredFrame {
+            let compacted: Int   // position in the guard-passing sequence
+            let index: Int       // original-video frame index
+            let probability: Double
+        }
+        var allScored: [ScoredFrame] = []
+        var k = 0
 
         // Lags are computed positionally (faithful to pandas .shift, which is
         // positional). The returned Set<Int> uses the original-video .index.
@@ -162,7 +184,10 @@ public final class BounceDetectorInference: BounceDetecting {
             guard let outputName = model.modelDescription.outputDescriptionsByName.keys.first,
                   let outputValue = prediction.featureValue(for: outputName),
                   outputValue.type == .double || outputValue.type == .int64
-            else { continue }
+            else {
+                k += 1
+                continue
+            }
 
             let probability: Double
             if outputValue.type == .double {
@@ -171,12 +196,32 @@ public final class BounceDetectorInference: BounceDetecting {
                 probability = Double(outputValue.int64Value)
             }
 
-            if probability > threshold {
-                bounceIndices.insert(ballPoints[n].index)
+            allScored.append(ScoredFrame(compacted: k, index: ballPoints[n].index, probability: probability))
+            k += 1
+        }
+
+        // Phase-0 postprocess (bounce_detector.py:88-96): collapse runs of
+        // consecutive above-threshold compacted positions to a single bounce.
+        // "Consecutive" means compacted[i] - compacted[i-1] == 1 (adjacent in
+        // the guard-passing sequence, regardless of original frame index gaps).
+        // Within a consecutive run, keep the frame that beats its predecessor
+        // (matching Phase-0's ind_bounce_filtered[-1] = ind_bounce[i] exactly —
+        // not a true-maximum; a 3-run like 0.9,0.5,0.7 → keeps 0.7).
+        let aboveThreshold = allScored.filter { $0.probability > threshold }
+        guard !aboveThreshold.isEmpty else { return [] }
+
+        var filtered: [ScoredFrame] = [aboveThreshold[0]]
+        for i in 1..<aboveThreshold.count {
+            if aboveThreshold[i].compacted - aboveThreshold[i - 1].compacted != 1 {
+                // New non-consecutive bounce — start a new group.
+                filtered.append(aboveThreshold[i])
+            } else if aboveThreshold[i].probability > aboveThreshold[i - 1].probability {
+                // Same run, current beats predecessor — replace (Phase-0 faithful).
+                filtered[filtered.count - 1] = aboveThreshold[i]
             }
         }
 
-        return bounceIndices
+        return Set(filtered.map { $0.index })
     }
 }
 
