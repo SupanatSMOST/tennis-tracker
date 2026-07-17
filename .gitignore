@@ -12,3 +12,7 @@ build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
+
+# CV model weights and converted CoreML packages (gitignored; obtain manually — see cv/README.md)
+cv/models/
+ios/TennisShotTracker/TennisShotTracker/Resources/ML/

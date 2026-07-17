@@ -1,0 +1,4 @@
+coremltools>=8.0
+torch>=2.0
+catboost>=1.2
+numpy>=1.24
