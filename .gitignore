@@ -16,3 +16,8 @@ xcuserdata/
 # CV model weights and converted CoreML packages (gitignored; obtain manually — see cv/README.md)
 cv/models/
 ios/TennisShotTracker/TennisShotTracker/Resources/ML/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
