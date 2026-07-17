@@ -154,7 +154,7 @@ public final class BounceDetectorInference: BounceDetecting {
             let inputFeatures = try MLDictionaryFeatureProvider(
                 dictionary: ["input": MLFeatureValue(multiArray: array)]
             )
-            let prediction = try model.prediction(from: inputFeatures)
+            let prediction = try await model.prediction(from: inputFeatures)
 
             // ponytail: Output feature name resolved dynamically from the model
             // description to avoid guessing a hardcoded string (OQ-2 ethos).
