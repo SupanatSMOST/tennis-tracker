@@ -90,20 +90,49 @@ The Xcode project references `Resources/ML/` as a resource folder (wired in Task
 
 ---
 
-## 12-column CatBoost bounce feature order
+## 5. 12-column CatBoost bounce feature order  *(OQ-2 RESOLVED — Task 9)*
 
-**Placeholder — to be filled in Task 9 (OQ-2).**
+**Authority:** `TennisProject/bounce_detector.py → BounceDetector.prepare_features`
+(lines 39–48), recovered byte-for-byte. NOT guessed.
 
-The `BounceDetectorInference` Swift class (Task 9) builds a 12-column `MLMultiArray`
-per candidate frame and runs it through `BounceDetector.mlmodel`. The column order must
-match the order in which features were supplied to the CatBoost model during Phase-0
-training, recovered **byte-for-byte from the Phase-0 training/inference code** (the
-`bounce.cbm`-producing script in `yastrebksv/TennisProject`). It must NOT be guessed.
+The `BounceDetectorInference` Swift class builds a 12-column `MLMultiArray` per
+scoreable frame and feeds it to `BounceDetector.mlmodel`. The column order is:
 
-The confirmation hook is `convert_models.py`'s printed input spec (AC4): after running
-`python cv/convert_models.py`, verify that the printed `BounceDetector` input shows 12
-columns and confirm the feature names match the recovered order. Document the final order
-here in Task 9 before wiring `BounceDetectorInference`.
+```
+Column index | Feature name    | Formula
+-------------|-----------------|--------------------------------------------------
+ 0           | x_diff_1        | abs(x[n-1] - x[n])           ← abs
+ 1           | x_diff_2        | abs(x[n-2] - x[n])           ← abs
+ 2           | x_diff_inv_1    | abs(x[n+1] - x[n])           ← abs
+ 3           | x_diff_inv_2    | abs(x[n+2] - x[n])           ← abs
+ 4           | x_div_1         | abs(x_diff_1 / (x_diff_inv_1 + eps))   ← abs, eps=1e-15
+ 5           | x_div_2         | abs(x_diff_2 / (x_diff_inv_2 + eps))   ← abs, eps=1e-15
+ 6           | y_diff_1        | (y[n-1] - y[n])              ← NO abs
+ 7           | y_diff_2        | (y[n-2] - y[n])              ← NO abs
+ 8           | y_diff_inv_1    | (y[n+1] - y[n])              ← NO abs
+ 9           | y_diff_inv_2    | (y[n+2] - y[n])              ← NO abs
+10           | y_div_1         | y_diff_1 / (y_diff_inv_1 + eps)        ← NO abs, eps=1e-15
+11           | y_div_2         | y_diff_2 / (y_diff_inv_2 + eps)        ← NO abs, eps=1e-15
+```
 
-If the Phase-0 training code is unavailable, surface it as a Gate-2 blocker — do not
-proceed with a guessed order (OQ-2 RISK, plan §0 / §9).
+**Key asymmetry (load-bearing):** `abs` is applied to all three x-families but
+**not** to any y-family. Swapping this silently produces garbage while all
+shape-tests pass. The asymmetry exactly matches lines 27–32 of `bounce_detector.py`.
+
+**Lag notation:** for array position `n`, lag_i = value at position `n-i`
+(past frame), lag_inv_i = value at position `n+i` (future frame).
+
+**Scoreable frame rule:** a frame at position `n` is only scored if ALL of
+positions n-2, n-1, n, n+1, n+2 have a **non-nil** ball point. Frames near
+the array ends (n < 2 or n ≥ count-2) and frames with any nil lag are skipped.
+
+**Threshold:** bounce if predicted probability `> 0.45` (strict greater-than,
+matching `np.where(preds > self.threshold)` in `bounce_detector.py`).
+
+**Intentionally NOT ported (OQ-6=no-dedup locked):**
+- `smooth_predictions` — cubic-spline gap extrapolation
+- `postprocess` — consecutive-bounce deduplication filter
+
+**Confirmation hook:** after running `python cv/convert_models.py`, the printed
+`BounceDetector` input spec should show 12 columns. Verify that the feature names
+match the table above (AC4). This is the final OQ-2 validation step.
