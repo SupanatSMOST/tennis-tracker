@@ -1,5 +1,15 @@
 import Foundation
 
+/// Canonical court-zone taxonomy shared with ZoneClassifier.
+public enum CourtZone: String, Codable, CaseIterable, Equatable, Sendable {
+    case frontCourtLeft = "front_court_left"
+    case frontCourtRight = "front_court_right"
+    case baselineLeft = "baseline_left"
+    case baselineRight = "baseline_right"
+    case outLeft = "out_left"
+    case outRight = "out_right"
+}
+
 public struct CVPoint: Codable, Equatable, Sendable {
     public let x: Double
     public let y: Double
@@ -26,11 +36,11 @@ public struct CVBounceEvent: Codable, Equatable, Sendable {
     public let timestampMs: Int64
     public let imagePoint: CVPoint?
     public let courtPoint: CVPoint?
-    public let zone: String?
+    public let zone: CourtZone?
     public let confidence: Double?
     public let reviewStatus: String
     enum CodingKeys: String, CodingKey { case eventId="event_id", eventType="event_type", timestampMs="timestamp_ms", imagePoint="image_point", courtPoint="court_point", zone, confidence, reviewStatus="review_status" }
-    public init(eventId: String, eventType: String="bounce", timestampMs: Int64, imagePoint: CVPoint?, courtPoint: CVPoint?, zone: String?, confidence: Double?, reviewStatus: String) { self.eventId=eventId; self.eventType=eventType; self.timestampMs=timestampMs; self.imagePoint=imagePoint; self.courtPoint=courtPoint; self.zone=zone; self.confidence=confidence; self.reviewStatus=reviewStatus }
+    public init(eventId: String, eventType: String="bounce", timestampMs: Int64, imagePoint: CVPoint?, courtPoint: CVPoint?, zone: CourtZone?, confidence: Double?, reviewStatus: String) { self.eventId=eventId; self.eventType=eventType; self.timestampMs=timestampMs; self.imagePoint=imagePoint; self.courtPoint=courtPoint; self.zone=zone; self.confidence=confidence; self.reviewStatus=reviewStatus }
 }
 public struct CVBounceResult: Codable, Equatable, Sendable {
     public let schemaVersion: String
@@ -44,16 +54,14 @@ public struct CVBounceResult: Codable, Equatable, Sendable {
     public func validate() throws {
         guard schemaVersion == "1.0", !matchId.isEmpty, !calibrationId.isEmpty, video.durationMs > 0, video.width > 0, video.height > 0, video.fps.isFinite, video.fps > 0, !model.name.isEmpty, !model.version.isEmpty, !model.runtime.isEmpty else { throw CVBounceResultError.invalidMetadata }
         var seen = Set<String>()
-        let zones = Set(["front_court_left", "front_court_right", "baseline_left", "baseline_right", "out_left", "out_right", "out_behind"])
         let statuses = Set(["needs_review", "accepted", "corrected", "rejected", "unresolved"])
         for event in events {
             guard !event.eventId.isEmpty, seen.insert(event.eventId).inserted, event.eventType == "bounce", event.timestampMs >= 0, event.timestampMs <= video.durationMs, statuses.contains(event.reviewStatus) else { throw CVBounceResultError.invalidEvent }
             if let p=event.imagePoint, !(p.x.isFinite && p.y.isFinite && (0...1).contains(p.x) && (0...1).contains(p.y)) { throw CVBounceResultError.invalidPoint }
             if let p=event.courtPoint, !(p.x.isFinite && p.y.isFinite) { throw CVBounceResultError.invalidPoint }
             if let c=event.confidence, !(c.isFinite && (0...1).contains(c)) { throw CVBounceResultError.invalidConfidence }
-            if let z=event.zone, !zones.contains(z) { throw CVBounceResultError.invalidZone }
         }
     }
     public var acceptedEvents: [CVBounceEvent] { events.filter { ($0.reviewStatus == "accepted" || $0.reviewStatus == "corrected") && $0.zone != nil } }
 }
-public enum CVBounceResultError: Error { case invalidMetadata, invalidEvent, invalidPoint, invalidConfidence, invalidZone }
+public enum CVBounceResultError: Error { case invalidMetadata, invalidEvent, invalidPoint, invalidConfidence }
