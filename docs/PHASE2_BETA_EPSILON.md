@@ -1,0 +1,31 @@
+# Eva Helion Phase 2: Model Export and Ground-Truth Evaluation
+
+## Beta: CoreML conversion pipeline specification (proposal)
+
+Treat model input/output as candidate-specific: inspect the selected checkpoint and preprocessing implementation before freezing a converter. The spike's TrackNet implementation expects resized video frames and temporal context; do not assume a conventional one-frame detector tensor. Proposed export interface for a three-frame temporal heatmap model: float32 input `frames` shaped `[1, 3, 3, 360, 640]` (batch, time, RGB, height, width), RGB values normalized exactly as training code specifies; output heatmap logits/scores with documented layout, e.g. `[1, 1, 360, 640]`. If selected implementation concatenates frames into channels, use `[1, 9, 360, 640]` instead and record the exact training/export parity. This is a candidate interface, not a claim about existing checkpoint tensor shape. Confirm with a checkpoint smoke inference and numerical parity before conversion.
+
+Preprocessing must specify source pixel format, orientation transform, resize/letterbox policy, crop/ROI, RGB/BGR ordering, scaling/mean/std, frame sampling interval, missing-frame policy, and temporal frame order. Keep preprocessing in a versioned shared spec; avoid CoreML-only implicit preprocessing until parity is tested. Postprocessing: heatmap threshold/peak extraction, NMS or connected components, candidate score calibration, short-gap tracking, and bounce detection are separate named steps. Include confidence calibration on held-out clips.
+
+Export outline:
+1. Pin Python, PyTorch, ONNX, coremltools, model code and checkpoint digests; record upstream license.
+2. Build deterministic example input and save preprocessing metadata and outputs.
+3. Load checkpoint in eval mode; export ONNX with named inputs/outputs and fixed temporal/image dimensions (dynamic batch only if required); run ONNX checker and reference inference.
+4. Convert using coremltools from PyTorch-supported export/ONNX route available in the selected pinned release; target iOS deployment minimum and package as `.mlpackage`. Validate supported ops and compute precision (FP16 first; quantization only after accuracy comparison).
+5. Compare PyTorch, ONNX and CoreML output tensors with declared tolerances, then compare detections and bounce/zone metrics on a golden clip set. Exercise Core ML compute-unit choices on real supported iPhones; record actual latency, memory, thermal, and whether ANE is used.
+6. Archive `.mlpackage` digest, converter versions, model card, license, input/output schema, and reproducible command/script. Never claim ANE acceleration without device profiling.
+
+## Beta: labeled benchmark dataset structure
+
+Use consented or license-cleared original clips. One clip per fixed camera setup, full court corners visible, stable mount, recorded orientation and frame rate; include day/night or lighting variation, hard/clay/grass where possible, rallies/serves, occlusion, near-line, out/behind-baseline examples. Store source video out of git in access-controlled storage; manifests carry a stable clip ID and SHA-256, not public/private video URLs or personal data. Split by whole clip/camera/session (never neighboring frames across train/eval), with held-out court/camera conditions.
+
+Suggested layout: `dataset/manifest.jsonl`, `annotations/<clip_id>.jsonl`, and locally stored video files in controlled storage. Manifest fields: `clip_id`, `sha256`, `path_or_secure_ref`, `license_or_consent_id`, `split`, `duration_ms`, `width`, `height`, `fps_num`, `fps_den`, `orientation`, `camera_setup_id`, `court_surface`, `lighting`, `calibration_id`, `annotator_ids`, `annotation_version`. Annotation event fields: `clip_id`, `frame_index`, `timestamp_ms`, `event_type` (`bounce`), `image_point_px` (`x`,`y`), normalized point if available, `court_point` if independently calibrated, `zone`, `visibility` (`clear`,`blurred`,`occluded`,`uncertain`), `label_confidence`, `adjudication_status`, and optional notes. Keep uncertain/unobservable events explicit; never silently omit them. Store calibration corners and court-coordinate convention/version separately. Provide annotator adjudication and inter-annotator agreement.
+
+Minimum initial gate per existing Phase 1 plan: 30–50 hand-labeled bounces per clip on public and fixed-position phone footage, all four court corners visible on phone clips. This is a smoke/evaluation minimum, not a broad generalization guarantee; add independent held-out clips before claiming robustness. Evaluation reports event detection precision/recall/F1, timestamp error, localization error, correct-zone accuracy/confusion matrix, coverage vs confidence, false positives per minute, per-condition slices, sample counts and uncertainty.
+
+## Epsilon: fixtures and tests
+
+Go fixture tests are in `backend/internal/cvresult/result_test.go`; Swift TennisCore fixtures are in `ios/TennisCore/Tests/TennisCoreTests/CVBounceResultTests.swift`. Both cover serialization round-trip, zero events, invalid confidence, out-of-range image coordinates, zone taxonomy, and excluding pending review events from accepted mappings. Run `go test ./...` and `swift test` from `ios/TennisCore`; verify in fresh CI before merge. Cross-language golden JSON should be added as a shared fixture once CI supports resource sharing. Current implementations reject confidence outside [0,1], rather than clamping noisy scores: calibration/normalization belongs in the inference producer, and invalid payloads should not silently become trusted values.
+
+## Contract notes
+
+The schema and model additions follow Phase 1's version 1.0 example. Go decode currently allows empty `events` as a valid zero-bounce result, rejects unknown JSON keys, duplicate IDs, out-of-video timestamps, unsupported zones/status values, nonfinite/out-of-range confidence, and normalized image points outside [0,1]. Only reviewed (`accepted`/`corrected`) events with a zone are exposed as accepted CV records. Court coordinates are finite but not bounded because the Phase 1 contract did not define court-plane ranges; define units and boundaries with the calibration implementation before rejecting valid out/outside-court points. Swift mirrors validation for app intake; keep the shared contract as source of truth.
