@@ -1,6 +1,6 @@
 import Foundation
 
-/// Canonical court-zone taxonomy shared with ZoneClassifier.
+/// Canonical seven-zone taxonomy shared with ZoneClassifier.
 public enum CourtZone: String, Codable, CaseIterable, Equatable, Sendable {
     case frontCourtLeft = "front_court_left"
     case frontCourtRight = "front_court_right"
@@ -8,6 +8,7 @@ public enum CourtZone: String, Codable, CaseIterable, Equatable, Sendable {
     case baselineRight = "baseline_right"
     case outLeft = "out_left"
     case outRight = "out_right"
+    case outBehind = "out_behind"
 }
 
 public struct CVPoint: Codable, Equatable, Sendable {
